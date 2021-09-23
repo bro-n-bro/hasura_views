@@ -1,0 +1,63 @@
+CREATE VIEW proposals_view AS (
+    SELECT
+        moniker,
+        self_delegate_address,
+        voting_power,
+        number_of_votes,
+        COALESCE(lats_proposal_id, (select max(proposal_id) FROM proposal_vote)) AS last_proposal_id,
+        last_vote.option AS last_proposal_option,
+        title,
+        description
+    FROM (
+        SELECT
+            moniker,
+            t.voting_power,
+            count(*) as number_of_votes,
+            self_delegate_address
+        FROM
+            proposal_vote
+        LEFT JOIN (
+            SELECT
+                moniker,
+                validator_voting_power.voting_power,
+                self_delegate_address
+            FROM
+                validator_description
+            LEFT JOIN validator_info ON validator_info.consensus_address = validator_description.validator_address
+            LEFT JOIN validator_voting_power ON validator_info.consensus_address = validator_voting_power.validator_address
+        ) AS t ON proposal_vote.voter_address = t.self_delegate_address
+        WHERE moniker IS NOT NULL
+        GROUP BY moniker, voting_power, self_delegate_address
+        ORDER BY voting_power DESC
+    ) AS temp
+    LEFT JOIN (
+        SELECT
+            proposal_id AS lats_proposal_id,
+            voter_address,
+            option
+        FROM
+            proposal_vote
+        WHERE
+            proposal_id = (SELECT max(proposal_id) FROM proposal_vote)
+    ) AS _t ON temp.self_delegate_address = _t.voter_address
+    LEFT JOIN (
+        SELECT
+            voter_address,
+            proposal_id,
+            option
+        FROM
+            proposal_vote
+        WHERE
+            proposal_id = (select max(proposal_id) FROM proposal_vote)
+    ) AS last_vote ON self_delegate_address = last_vote.voter_address
+    LEFT JOIN (
+        SELECT
+            id,
+            title,
+            description
+        FROM
+            proposal
+        WHERE
+            id = (select max(proposal_id) FROM proposal_vote)
+    ) AS _proposal ON COALESCE(lats_proposal_id, (select max(proposal_id) FROM proposal_vote)) = _proposal.id
+)
